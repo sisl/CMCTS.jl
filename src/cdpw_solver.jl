@@ -71,8 +71,7 @@ function search(p::CDPWPlanner, snode::Int, info::Dict)
     p.solver.show_progress ? progress = Progress(p.solver.n_iterations) : nothing
     nquery = 0
     start_s = timer()
-    max_clip = (max_reward(p.mdp) - min_reward(p.mdp))/(1-discount(p.mdp)) ./ p._tau
-    # p._lambda = rand(p.rng, n_costs(p.mdp)) .* max_clip # random initialization
+    # p._lambda = rand(p.rng, n_costs(p.mdp)) .* p.max_clip # random initialization
     if p.solver.init_λ === nothing
         p._lambda = zeros(Float64, n_costs(p.mdp)) # start unconstrained
     else
@@ -98,7 +97,7 @@ function search(p::CDPWPlanner, snode::Int, info::Dict)
         # dual ascent w/ clipping
         sa = rand(p.rng, action_policy_UCB(p.tree, snode, p._lambda, 0.0, 0.0))
         p._lambda += alpha(p.solver.alpha_schedule,i) .* (p.tree.qc[sa]-p.budget)
-        p._lambda = min.(max.(p._lambda, 0.), max_clip)
+        p._lambda = min.(max.(p._lambda, 0.), p.solver.max_clip)
 
         # tracking
         if p.solver.search_progress_info

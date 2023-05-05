@@ -138,6 +138,7 @@ mutable struct CDPWSolver <: AbstractCMCTSSolver
     init_N::Any
     init_Qc::Any
     init_λ::Union{Nothing,Vector{Float64}}
+    max_clip::Union{Float64,Vector{Float64}}
     next_action::Any
     default_action::Any
     reset_callback::Function
@@ -174,6 +175,7 @@ function CDPWSolver(;depth::Int=10,
                     init_N::Any=0,
                     init_Qc::Any=0.,
                     init_λ::Union{Nothing,Vector{Float64}}=nothing,
+                    max_clip::Union{Float64,Vector{Float64}}=Inf,
                     next_action::Any=RandomActionGenerator(rng),
                     default_action::Any=ExceptionRethrow(),
                     reset_callback::Function=(mdp, s) -> false,
@@ -182,7 +184,7 @@ function CDPWSolver(;depth::Int=10,
     CDPWSolver(depth, exploration_constant, nu, n_iterations, max_time, k_action, alpha_action, k_state, alpha_state, 
         keep_tree, enable_action_pw, enable_state_pw, check_repeat_state, check_repeat_action, 
         tree_in_info, search_progress_info, return_best_cost, rng, alpha_schedule, estimate_value, init_Q, init_N, init_Qc, init_λ,
-        next_action, default_action, reset_callback, show_progress, timer)
+        max_clip, next_action, default_action, reset_callback, show_progress, timer)
 end
 
 #=
@@ -302,7 +304,6 @@ mutable struct CDPWPlanner{P<:Union{MDP,POMDP}, S, A, SE, NA, RCB, RNG} <: Abstr
     budget::Vector{Float64} # remaining budget for constraint search
     _cost_mem::Union{Nothing,Vector{Float64}}   # estimate for one-step cost
     _lambda::Union{Nothing,Vector{Float64}}    # weights for dual ascent
-    _tau::Vector{Float64}       # clips for dual ascent
 end
 
 
@@ -324,7 +325,6 @@ function CDPWPlanner(solver::CDPWSolver, mdp::P) where P<:Union{POMDP,MDP}
                                           costs_limit(mdp),
                                           nothing, 
                                           nothing, 
-                                          costs_limit(mdp)
                      )
 end
 
