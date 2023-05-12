@@ -56,7 +56,7 @@ function POMDPTools.action_info(p::CDPWPlanner, s; tree_in_info=false)
 
         # take random action from resulting best policy and adjust one-step cost memory
         a = tree.a_labels[rand(p.rng,policy)]
-        tlc = map(i->tree.top_level_costs[i], policy.vals)
+        tlc = map(i->get(tree.top_level_costs, i, zeros(Float64, size(p._lambda))), policy.vals)
         p._cost_mem = dot(tlc, policy.probs)
     catch ex
         a = convert(actiontype(p.mdp), default_action(p.solver.default_action, p.mdp, s, ex))
