@@ -222,6 +222,9 @@ mutable struct CDPWTree{S,A}
     transitions::Vector{Vector{Tuple{Int,Float64,Vector{Float64}}}}
     a_labels::Vector{A}
     a_lookup::Dict{Tuple{Int,A}, Int}
+    
+    # the lambda Vector (technically, a state node attribute)
+    lambda::Vector{Vector{Float64}}
 
     # for tracking transitions
     n_a_children::Vector{Int}
@@ -244,6 +247,8 @@ mutable struct CDPWTree{S,A}
                    sizehint!(Vector{Tuple{Int,Float64,Vector{Float64}}}[], sz),
                    sizehint!(A[], sz),
                    Dict{Tuple{Int,A}, Int}(),
+
+                   sizehint!(Vector{Vector{Float64}}[], sz),
 
                    sizehint!(Int[], sz),
                    Set{Tuple{Int,Int}}(),

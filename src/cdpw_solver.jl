@@ -77,6 +77,10 @@ function search(p::CDPWPlanner, snode::Int, info::Dict)
     else
         p._lambda = p.solver.init_λ
     end
+    if (p.tree.lambda.size() == 0)
+        push!(p.tree, p._lambda)
+    end
+    
     if p.solver.search_progress_info
         info[:lambda] = sizehint!(Vector{Float64}[p._lambda], p.solver.n_iterations)
         info[:v_best] = sizehint!(Float64[], p.solver.n_iterations)
@@ -87,7 +91,7 @@ function search(p::CDPWPlanner, snode::Int, info::Dict)
     
     for i = 1:p.solver.n_iterations
         nquery += 1
-        simulate(p, snode, p.solver.depth) # (not 100% sure we need to make a copy of the state here)
+        simulate(p, snode, p.solver.depth, p.budget) # (not 100% sure we need to make a copy of the state here)
         p.solver.show_progress ? next!(progress) : nothing
         if timer() - start_s >= p.solver.max_time
             p.solver.show_progress ? finish!(progress) : nothing
@@ -95,13 +99,13 @@ function search(p::CDPWPlanner, snode::Int, info::Dict)
         end
 
         # dual ascent w/ clipping
-        sa = rand(p.rng, action_policy_UCB(p.tree, snode, p._lambda, 0.0, 0.0))
-        p._lambda += alpha(p.solver.alpha_schedule,i) .* (p.tree.qc[sa]-p.budget)
-        p._lambda = min.(max.(p._lambda, 0.), p.solver.max_clip)
+        sa = rand(p.rng, action_policy_UCB(p.tree, snode, p.tree.lambda[snode], 0.0, 0.0))
+        # p._lambda += alpha(p.solver.alpha_schedule,i) .* (p.tree.qc[sa]-p.budget)
+        # p._lambda = min.(max.(p._lambda, 0.), p.solver.max_clip)
 
         # tracking
         if p.solver.search_progress_info
-            push!(info[:lambda], p._lambda)
+            push!(info[:lambda], p.tree.lambda[snode])
             push!(info[:v_taken], p.tree.q[sa])
             push!(info[:cv_taken], p.tree.qc[sa])
 
@@ -122,13 +126,13 @@ function search(p::CDPWPlanner, snode::Int, info::Dict)
     info[:search_time] = timer() - start_s
     info[:search_time_us] = info[:search_time]*1e6
 
-    return action_policy_UCB(p.tree, snode, p._lambda, 0., p.solver.nu)
+    return action_policy_UCB(p.tree, snode, p.tree.lambda[snode], 0., p.solver.nu)
 end
 
 """
 Return the reward for one iteration of MCTSCDPW.
 """
-function simulate(dpw::CDPWPlanner, snode::Int, d::Int)
+function simulate(dpw::CDPWPlanner, snode::Int, d::Int, budget::Vector{Float64})
     S = statetype(dpw.mdp)
     A = actiontype(dpw.mdp)
     sol = dpw.solver
@@ -165,7 +169,8 @@ function simulate(dpw::CDPWPlanner, snode::Int, d::Int)
             tree.total_n[snode] += n0
         end
     end
-    acts = action_policy_UCB(tree, snode, dpw._lambda, sol.exploration_constant, sol.nu)
+    node_lambda = tree.lambda[snode]
+    acts = action_policy_UCB(tree, snode, node_lambda, sol.exploration_constant, sol.nu)
     sanode = rand(dpw.rng, acts)
     a = tree.a_labels[sanode]
 
@@ -178,6 +183,8 @@ function simulate(dpw::CDPWPlanner, snode::Int, d::Int)
             spnode = tree.s_lookup[sp]
         else
             spnode = insert_state_node!(tree, sp, sol.keep_tree || sol.check_repeat_state)
+            new_lambda = deepcopy(tree.lambda[snode]) # <--- pushing on the lambda of a new node
+            push!(tree.lambda, new_lambda) 
             new_node = true
         end
         
@@ -196,7 +203,8 @@ function simulate(dpw::CDPWPlanner, snode::Int, d::Int)
     if new_node
         v, cv = estimate_value(dpw.solved_estimate, dpw.mdp, sp, d-1)
     else
-        v, cv = simulate(dpw, spnode, d-1)
+        child_budget = (budget - tree.top_level_costs[sanode])/discount(p.problem) # Updating child budget
+        v, cv = simulate(dpw, spnode, d-1, child_budget)
     end
     q = r + discount(dpw.mdp) * v
     qc = c + discount(dpw.mdp) * cv 
@@ -214,6 +222,9 @@ function simulate(dpw::CDPWPlanner, snode::Int, d::Int)
             tree.top_level_costs[sanode] += (c-tree.top_level_costs[sanode])/tree.n[sanode]
         end
     end
+
+    tree.lambda[snode] += alpha(pomcp.solver.alpha_schedule, tree.n[sanode]) .*  (tree.cv[sanode] - budget) # tree.n[best_node or h?]
+    tree.lambda[snode] = min.(max.(tree.lambda[snode], 0.), pomcp.solver.max_clip) # Some clipping
 
     if sol.return_best_cost
         LC = dot(dpw._lambda .+ 1e-3, qc)
