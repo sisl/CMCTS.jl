@@ -109,7 +109,7 @@ end
 #     return D3Tree(nodes; title=title, kwargs...)
 # end
 
-function D3Trees.D3Tree(tree::CDPWTree; title="CMCTS-DPW Tree", kwargs...)
+function D3Trees.D3Tree(tree::CDPWTree; title="CMCTS-DPW Tree", lambda=nothing, kwargs...)
     lens = length(tree.total_n)
     lensa = length(tree.n)
     len = lens + lensa
@@ -134,6 +134,7 @@ function D3Trees.D3Tree(tree::CDPWTree; title="CMCTS-DPW Tree", kwargs...)
                 $(tooltip_tag(tree.s_labels[s]))
                 N: $(tree.total_n[s])
                 """
+        lambda !== nothing && s==1 && (tt[s] *= """λ: $(lambda)""")
         for sa in tree.children[s]
             w = 20.0*sqrt(tree.n[sa]/tree.total_n[s])
             link_style[sa+lens] = "stroke-width:$(w)px"
@@ -165,6 +166,7 @@ function D3Trees.D3Tree(tree::CDPWTree; title="CMCTS-DPW Tree", kwargs...)
                       N: $(tree.n[sa])
                       C: $(tree.qc[sa])
                       """
+        lambda !== nothing && (tt[sa+lens] *= """Qλ: $(tree.q[sa] .- dot(lambda,tree.qc[sa]))""")
 
         rel_q = (tree.q[sa]-min_q)/(max_q-min_q)
         if isnan(rel_q)
