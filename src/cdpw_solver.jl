@@ -71,14 +71,16 @@ function search(p::CDPWPlanner, snode::Int, info::Dict)
     p.solver.show_progress ? progress = Progress(p.solver.n_iterations) : nothing
     nquery = 0
     start_s = timer()
+    sol = p.solver
+
     # p._lambda = rand(p.rng, n_costs(p.mdp)) .* p.max_clip # random initialization
     if p.solver.init_λ === nothing
         p._lambda = zeros(Float64, n_costs(p.mdp)) # start unconstrained
     else
         p._lambda = p.solver.init_λ
     end
-    if (p.tree.lambda.size() == 0)
-        push!(p.tree, p._lambda)
+    if (sol.plus_flag && size(p.tree.lambda)[1] == 0)
+        push!(p.tree.lambda, p._lambda)
     end
     
     if p.solver.search_progress_info
@@ -99,13 +101,21 @@ function search(p::CDPWPlanner, snode::Int, info::Dict)
         end
 
         # dual ascent w/ clipping
-        sa = rand(p.rng, action_policy_UCB(p.tree, snode, p.tree.lambda[snode], 0.0, 0.0))
-        # p._lambda += alpha(p.solver.alpha_schedule,i) .* (p.tree.qc[sa]-p.budget)
-        # p._lambda = min.(max.(p._lambda, 0.), p.solver.max_clip)
+        if (sol.plus_flag)
+            sa = rand(p.rng, action_policy_UCB(p.tree, snode, p.tree.lambda[snode], 0.0, 0.0))
+        else
+            sa = rand(p.rng, action_policy_UCB(p.tree, snode, p._lambda, 0.0, 0.0))
+            p._lambda += alpha(p.solver.alpha_schedule,i) .* (p.tree.qc[sa]-p.budget)
+            p._lambda = min.(max.(p._lambda, 0.), p.solver.max_clip)
+        end
 
         # tracking
         if p.solver.search_progress_info
-            push!(info[:lambda], p.tree.lambda[snode])
+            if sol.plus_flag
+                push!(info[:lambda], p.tree.lambda[snode])
+            else
+                push!(info[:lambda], p._lambda)
+            end
             push!(info[:v_taken], p.tree.q[sa])
             push!(info[:cv_taken], p.tree.qc[sa])
 
@@ -126,9 +136,12 @@ function search(p::CDPWPlanner, snode::Int, info::Dict)
     info[:search_time] = timer() - start_s
     info[:search_time_us] = info[:search_time]*1e6
 
-    return action_policy_UCB(p.tree, snode, p.tree.lambda[snode], 0., p.solver.nu)
+    if sol.plus_flag
+        return action_policy_UCB(p.tree, snode, p.tree.lambda[snode], 0., p.solver.nu)
+    else
+        return action_policy_UCB(p.tree, snode, p._lambda, 0., p.solver.nu)
+    end
 end
-
 """
 Return the reward for one iteration of MCTSCDPW.
 """
@@ -169,7 +182,11 @@ function simulate(dpw::CDPWPlanner, snode::Int, d::Int, budget::Vector{Float64})
             tree.total_n[snode] += n0
         end
     end
-    node_lambda = tree.lambda[snode]
+    if sol.plus_flag
+        node_lambda = tree.lambda[snode]
+    else
+        node_lambda = dpw._lambda
+    end
     acts = action_policy_UCB(tree, snode, node_lambda, sol.exploration_constant, sol.nu)
     sanode = rand(dpw.rng, acts)
     a = tree.a_labels[sanode]
@@ -183,8 +200,10 @@ function simulate(dpw::CDPWPlanner, snode::Int, d::Int, budget::Vector{Float64})
             spnode = tree.s_lookup[sp]
         else
             spnode = insert_state_node!(tree, sp, sol.keep_tree || sol.check_repeat_state)
-            new_lambda = deepcopy(tree.lambda[snode]) # <--- pushing on the lambda of a new node
-            push!(tree.lambda, new_lambda) 
+            if sol.plus_flag
+                new_lambda = deepcopy(tree.lambda[snode]) # <--- pushing on the lambda of a new node
+                push!(tree.lambda, new_lambda) 
+            end
             new_node = true
         end
         
@@ -203,7 +222,7 @@ function simulate(dpw::CDPWPlanner, snode::Int, d::Int, budget::Vector{Float64})
     if new_node
         v, cv = estimate_value(dpw.solved_estimate, dpw.mdp, sp, d-1)
     else
-        child_budget = (budget - tree.top_level_costs[sanode])/discount(p.problem) # Updating child budget
+        child_budget = (budget - get(tree.top_level_costs, sanode, c))/discount(dpw.mdp) # Updating child budget
         v, cv = simulate(dpw, spnode, d-1, child_budget)
     end
     q = r + discount(dpw.mdp) * v
@@ -223,13 +242,19 @@ function simulate(dpw::CDPWPlanner, snode::Int, d::Int, budget::Vector{Float64})
         end
     end
 
-    tree.lambda[snode] += alpha(pomcp.solver.alpha_schedule, tree.n[sanode]) .*  (tree.cv[sanode] - budget) # tree.n[best_node or h?]
-    tree.lambda[snode] = min.(max.(tree.lambda[snode], 0.), pomcp.solver.max_clip) # Some clipping
+    if sol.plus_flag
+        tree.lambda[snode] += alpha(sol.alpha_schedule, tree.n[sanode]) .*  (tree.qc[sanode] - budget) # tree.n[best_node or h?]
+        tree.lambda[snode] = min.(max.(tree.lambda[snode], 0.), sol.max_clip) # Some clipping
+        node_lambda = tree.lambda[snode]
+    else
+        node_lambda = dpw._lambda
+    end
+
 
     if sol.return_best_cost
-        LC = dot(dpw._lambda .+ 1e-3, qc)
+        LC = dot(node_lambda .+ 1e-3, qc)
         for ch in tree.children[snode]
-            LC_temp = dot(dpw._lambda .+ 1e-3, tree.qc[ch])
+            LC_temp = dot(node_lambda .+ 1e-3, tree.qc[ch])
             if LC_temp < LC
                 LC = LC_temp
                 qc = tree.qc[ch]

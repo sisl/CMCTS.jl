@@ -112,6 +112,9 @@ Fields:
 
     timer::Function:
         Timekeeping method. Search iterations ended when `timer() - start_time ≥ max_time`.
+
+    plus_flag::Bool:
+        Option to propagate the lambda vector down the tree as well
 """
 mutable struct CDPWSolver <: AbstractCMCTSSolver
     depth::Int
@@ -144,6 +147,7 @@ mutable struct CDPWSolver <: AbstractCMCTSSolver
     reset_callback::Function
     show_progress::Bool
     timer::Function
+    plus_flag::Bool
 end
 
 """
@@ -180,11 +184,12 @@ function CDPWSolver(;depth::Int=10,
                     default_action::Any=ExceptionRethrow(),
                     reset_callback::Function=(mdp, s) -> false,
                     show_progress::Bool=false,
-                    timer=() -> 1e-9 * time_ns())
+                    timer=() -> 1e-9 * time_ns(),
+                    plus_flag::Bool=false)
     CDPWSolver(depth, exploration_constant, nu, n_iterations, max_time, k_action, alpha_action, k_state, alpha_state, 
         keep_tree, enable_action_pw, enable_state_pw, check_repeat_state, check_repeat_action, 
         tree_in_info, search_progress_info, return_best_cost, rng, alpha_schedule, estimate_value, init_Q, init_N, init_Qc, init_λ,
-        max_clip, next_action, default_action, reset_callback, show_progress, timer)
+        max_clip, next_action, default_action, reset_callback, show_progress, timer,plus_flag)
 end
 
 #=
