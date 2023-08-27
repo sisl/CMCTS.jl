@@ -24,12 +24,14 @@ Example:
 mutable struct BeliefCMCTSSolver <: AbstractCMCTSSolver
     solver::AbstractCMCTSSolver
     search_updater::Updater
+    exact_rewards::Bool
 end
+BeliefCMCTSSolver(sol::AbstractCMCTSSolver,su::Updater;exact_rewards::Bool=false) = BeliefCMCTSSolver(sol,su,exact_rewards)
 
 # will return an AbstractCMCTSPlanner with a generative belief cmdp
 # that gbcmdp handles b', r, c = update(updater, b,a,o) internally for search
 function POMDPs.solve(sol::BeliefCMCTSSolver, p::POMDP)
-    bmdp = GenerativeBeliefCMDP(p, sol.search_updater)
+    bmdp = GenerativeBeliefCMDP(p, sol.search_updater; exact_rewards=sol.exact_rewards)
     return solve(sol.solver, bmdp)
 end
 
