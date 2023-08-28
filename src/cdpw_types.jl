@@ -113,100 +113,39 @@ Fields:
     timer::Function:
         Timekeeping method. Search iterations ended when `timer() - start_time ≥ max_time`.
 """
-mutable struct CDPWSolver <: AbstractCMCTSSolver
-    depth::Int
-    exploration_constant::Float64
-    nu::Float64 # slack to give when searching
-    n_iterations::Int
-    max_time::Float64
-    k_action::Float64
-    alpha_action::Float64
-    k_state::Float64
-    alpha_state::Float64
-    keep_tree::Bool
-    enable_action_pw::Bool
-    enable_state_pw::Bool
-    check_repeat_state::Bool
-    check_repeat_action::Bool
-    tree_in_info::Bool
-    search_progress_info::Bool
-    return_best_cost::Bool
-    rng::AbstractRNG
-    alpha_schedule::AlphaSchedule
-    estimate_value::Any
-    init_Q::Any
-    init_N::Any
-    init_Qc::Any
-    init_λ::Union{Nothing,Vector{Float64}}
-    max_clip::Union{Float64,Vector{Float64}}
-    next_action::Any
-    default_action::Any
-    reset_callback::Function
-    show_progress::Bool
-    timer::Function
+@with_kw mutable struct CDPWSolver <: AbstractCMCTSSolver
+    depth::Int=10
+    exploration_constant::Float64=1.0
+    nu::Float64=0.01
+    n_iterations::Int=100
+    max_time::Float64=Inf
+    k_action::Float64=10.0
+    alpha_action::Float64=0.5
+    k_state::Float64=10.0
+    alpha_state::Float64=0.5
+    keep_tree::Bool=false
+    enable_action_pw::Bool=true
+    enable_state_pw::Bool=true
+    check_repeat_state::Bool=true
+    check_repeat_action::Bool=true
+    return_safe_action::Bool = false
+    tree_in_info::Bool=false
+    search_progress_info::Bool=false
+    return_best_cost::Bool=false
+    rng::AbstractRNG=Random.GLOBAL_RNG
+    alpha_schedule::AlphaSchedule = InverseAlphaSchedule()
+    estimate_value::Any=RolloutEstimator(RandomSolver(rng))
+    init_Q::Any = 0.0
+    init_N::Any = 0
+    init_Qc::Any = 0.
+    init_λ::Union{Nothing,Vector{Float64}}=nothing
+    max_clip::Union{Float64,Vector{Float64}}=Inf
+    next_action::Any = RandomActionGenerator(rng)
+    default_action::Any = ExceptionRethrow()
+    reset_callback::Function = (mdp, s) -> false
+    show_progress::Bool = false
+    timer = () -> 1e-9 * time_ns()
 end
-
-"""
-    CDPWSolver()
-
-Use keyword arguments to specify values for the fields
-"""
-function CDPWSolver(;depth::Int=10,
-                    exploration_constant::Float64=1.0,
-                    nu::Float64=0.01,
-                    n_iterations::Int=100,
-                    max_time::Float64=Inf,
-                    k_action::Float64=10.0,
-                    alpha_action::Float64=0.5,
-                    k_state::Float64=10.0,
-                    alpha_state::Float64=0.5,
-                    keep_tree::Bool=false,
-                    enable_action_pw::Bool=true,
-                    enable_state_pw::Bool=true,
-                    check_repeat_state::Bool=true,
-                    check_repeat_action::Bool=true,
-                    tree_in_info::Bool=false,
-                    search_progress_info::Bool=false,
-                    return_best_cost::Bool=false,
-                    rng::AbstractRNG=Random.GLOBAL_RNG,
-                    alpha_schedule::AlphaSchedule = InverseAlphaSchedule(),
-                    estimate_value::Any=RolloutEstimator(RandomSolver(rng)),
-                    init_Q::Any=0.0,
-                    init_N::Any=0,
-                    init_Qc::Any=0.,
-                    init_λ::Union{Nothing,Vector{Float64}}=nothing,
-                    max_clip::Union{Float64,Vector{Float64}}=Inf,
-                    next_action::Any=RandomActionGenerator(rng),
-                    default_action::Any=ExceptionRethrow(),
-                    reset_callback::Function=(mdp, s) -> false,
-                    show_progress::Bool=false,
-                    timer=() -> 1e-9 * time_ns())
-    CDPWSolver(depth, exploration_constant, nu, n_iterations, max_time, k_action, alpha_action, k_state, alpha_state, 
-        keep_tree, enable_action_pw, enable_state_pw, check_repeat_state, check_repeat_action, 
-        tree_in_info, search_progress_info, return_best_cost, rng, alpha_schedule, estimate_value, init_Q, init_N, init_Qc, init_λ,
-        max_clip, next_action, default_action, reset_callback, show_progress, timer)
-end
-
-#=
-mutable struct StateActionStateNode
-    N::Int
-    R::Float64
-    StateActionStateNode() = new(0,0)
-end
-
-mutable struct DPWStateActionNode{S}
-    V::Dict{S,StateActionStateNode}
-    N::Int
-    Q::Float64
-    DPWStateActionNode(N,Q) = new(Dict{S,StateActionStateNode}(), N, Q)
-end
-
-mutable struct DPWStateNode{S,A} <: AbstractStateNode
-    A::Dict{A,DPWStateActionNode{S}}
-    N::Int
-    DPWStateNode{S,A}() where {S,A} = new(Dict{A,DPWStateActionNode{S}}(),0)
-end
-=#
 
 mutable struct CDPWTree{S,A}
     # for each state node

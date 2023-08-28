@@ -14,6 +14,7 @@ using Printf
 using ProgressMeter
 using POMDPLinter: @show_requirements, requirements_info, @POMDP_require, @req, @subreq
 import POMDPLinter
+using Parameters
 
 using D3Trees
 using Colors

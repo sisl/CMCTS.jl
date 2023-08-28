@@ -1,4 +1,5 @@
-dot(a::Vector,b::Vector) = sum(a .* b)
+dot(a::Vector, b::Vector) = sum(a .* b)
+dot(a::Tuple, b::Tuple) = sum(a .* b)
 
 """
 Delete existing decision tree.
@@ -55,9 +56,15 @@ function POMDPTools.action_info(p::CDPWPlanner, s; tree_in_info=false)
         end
 
         # take random action from resulting best policy and adjust one-step cost memory
-        a = tree.a_labels[rand(p.rng,policy)]
-        tlc = map(i->get(tree.top_level_costs, i, zeros(Float64, size(p._lambda))), policy.vals)
-        p._cost_mem = dot(tlc, policy.probs)
+        a_node = rand(p.rng, policy)
+        a = tree.a_labels[a_node]
+
+        # probabilistic cost accrued
+        # tlc = map(i->get(tree.top_level_costs, i, zeros(Float64, size(p._lambda))), support(policy))
+        # p._cost_mem = tlc[1] if length(tlc)==1 else dot(tlc, policy.probs)
+
+        # deterministic cost accrued
+        p._cost_mem = get(tree.top_level_costs, a_node, zeros(Float64, size(p._lambda)))
     catch ex
         a = convert(actiontype(p.mdp), default_action(p.solver.default_action, p.mdp, s, ex))
         info[:exception] = ex
@@ -122,7 +129,11 @@ function search(p::CDPWPlanner, snode::Int, info::Dict)
     info[:search_time] = timer() - start_s
     info[:search_time_us] = info[:search_time]*1e6
 
-    return action_policy_UCB(p.tree, snode, p._lambda, 0., p.solver.nu)
+    if p.solver.return_safe_action
+        return safe_action_policy(p.tree, snode, p.budget)
+    else
+        return action_policy_UCB(p.tree, snode, p._lambda, 0., p.solver.nu)
+    end
 end
 
 """
@@ -264,19 +275,44 @@ function action_policy_UCB(t::CDPWTree, s::Int, lambda::Vector{Float64}, c::Floa
         val_diff = best_criterion_val .- criterion_values
         next_best_nodes = t.children[s][0 .< val_diff .< nu]
         append!(best_nodes, next_best_nodes)
+        @warn("""
+         With ν > 0, the default stochastic policy evenly weighs all actions within ν of armgax Q_λ. 
+         See $(@__FILE__) and implement a new method for different special behavior in this case (e.g. the LP of CC-POMCP).
+         """, maxlog=1)
     end
     
     # weigh actions
     if length(best_nodes) == 1
-        weights = [1.0]
+        dist = Deterministic(best_nodes[1])
     else
-        weights = solve_lp(t, best_nodes)
+        dist = SparseCat(best_nodes, ones(Float64, length(best_nodes)) / length(best_nodes))
     end
-    return SparseCat(best_nodes, weights)
+    return dist 
 end
 
-function solve_lp(t::CDPWTree, best_nodes::Vector{Int})
-    # error("Multiple CDPW best actions not implemented")
-    # random for now
-    return ones(Float64, length(best_nodes)) / length(best_nodes)
+all_leq(a::Vector, b::Vector) = all(a.<=b)
+function safe_action_policy(t::CDPWTree, s::Int, budget::Vector{Float64})
+    """Implement safe final criterion policy.
+
+    argmax_a Qr(ba) s.t. Qc(ba) <= c 
+    If there are no satisfying actions, choose the one with the smallest constraint violation
+    """
+    # for discrete set of children
+    action_nodes = t.children[s]
+    Qr = t.q[action_nodes]
+    Qc = t.qc[action_nodes]
+    feasible = [all_leq(q, budget) for q in Qc]
+    if any(feasible)
+        best_feasible_index = argmax(Qr[feasible])
+        action = action_nodes[feasible][best_feasible_index]
+    else
+        violations = [max.(q.-budget,0) for q in Qc]
+        sum_violations = [sum(v) for v in violations]
+        action = action_nodes[argmin(sum_violations)]
+        @warn("""
+         No feasible action found, choosing action with minimum sum constraint violation. 
+         See $(@__FILE__) for details.
+         """, maxlog=1)
+    end
+    return Deterministic(action)
 end
